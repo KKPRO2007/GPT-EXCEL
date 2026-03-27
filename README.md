@@ -15,11 +15,11 @@ This is the Python-based backend engine for Excel GPT. It handles Excel processi
 ```bash```
 cd python_engine
 
-Install dependencies
+# Install dependencies
 pip install fastapi uvicorn pandas matplotlib openpyxl
 
-Run server
+# Run server
 uvicorn main:app --reload
 
-Open API docs
+# Open API docs
 http://127.0.0.1:8000/docs
