@@ -4,14 +4,12 @@ import Sidebar from "../components/Sidebar"
 import Header from "../components/Header"
 import AIChatPanel from "../components/AIChatPanel"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = "generate" | "preview" | "code" | "chart"
 type GenMode = "excel" | "document" | "chart" | "pivot" | "formula"
 
 interface Cell { value: string; formula?: string; bold?: boolean; align?: "left" | "center" | "right" }
 type SheetData = Cell[][]
 
-// ─── Sample generated data ────────────────────────────────────────────────────
 const SAMPLE_SHEETS: Record<string, { name: string; data: SheetData }[]> = {
   budget: [{
     name: "Budget 2025",
@@ -48,24 +46,20 @@ const SAMPLE_SHEETS: Record<string, { name: string; data: SheetData }[]> = {
 
 const SAMPLE_CODE: Record<string, string> = {
   budget: `import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 wb = openpyxl.Workbook()
 ws = wb.active
 ws.title = "Budget 2025"
 
-# Headers
 headers = ["Category", "Jan", "Feb", "Mar", "Q1 Total"]
-months = ["Jan", "Feb", "Mar"]
-
 for col, header in enumerate(headers, 1):
     cell = ws.cell(row=1, column=col, value=header)
     cell.font = Font(bold=True, color="FFFFFF")
     cell.fill = PatternFill("solid", fgColor="111111")
     cell.alignment = Alignment(horizontal="center")
 
-# Data
 data = [
     ("Salaries",    45000, 45000, 45000),
     ("Marketing",    8500,  9200,  7800),
@@ -79,19 +73,14 @@ for row_idx, (cat, jan, feb, mar) in enumerate(data, 2):
     ws.cell(row=row_idx, column=2, value=jan)
     ws.cell(row=row_idx, column=3, value=feb)
     ws.cell(row=row_idx, column=4, value=mar)
-    # Formula for Q1 total
-    ws.cell(row=row_idx, column=5,
-        value=f"=B{row_idx}+C{row_idx}+D{row_idx}")
+    ws.cell(row=row_idx, column=5, value=f"=B{row_idx}+C{row_idx}+D{row_idx}")
 
-# Totals row
 total_row = len(data) + 2
 ws.cell(row=total_row, column=1, value="Total").font = Font(bold=True)
 for col in range(2, 6):
     col_letter = get_column_letter(col)
-    ws.cell(row=total_row, column=col,
-        value=f"=SUM({col_letter}2:{col_letter}{total_row-1})")
+    ws.cell(row=total_row, column=col, value=f"=SUM({col_letter}2:{col_letter}{total_row-1})")
 
-# Column widths
 ws.column_dimensions["A"].width = 16
 for col in "BCDE":
     ws.column_dimensions[col].width = 12
@@ -131,14 +120,12 @@ wb.save("sales_pipeline.xlsx")
 print("✓ Sales pipeline generated")`,
 }
 
-// ─── Mini Chart (SVG) ─────────────────────────────────────────────────────────
 const BarChart = ({ data }: { data: { label: string; value: number; color?: string }[] }) => {
   const max = Math.max(...data.map(d => d.value))
   const W = 320, H = 160, pad = 30
 
   return (
     <svg width={W} height={H} style={{ fontFamily: "var(--font-mono)" }}>
-      {/* Gridlines */}
       {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
         const y = pad + (H - pad * 2) * (1 - ratio)
         return (
@@ -150,7 +137,6 @@ const BarChart = ({ data }: { data: { label: string; value: number; color?: stri
           </g>
         )
       })}
-      {/* Bars */}
       {data.map((d, i) => {
         const barW = (W - pad * 2 - 10) / data.length - 6
         const x = pad + i * ((W - pad * 2 - 10) / data.length) + 3
@@ -170,7 +156,6 @@ const BarChart = ({ data }: { data: { label: string; value: number; color?: stri
   )
 }
 
-// ─── Main ExcelSheet ──────────────────────────────────────────────────────────
 export default function ExcelSheet() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -211,7 +196,6 @@ export default function ExcelSheet() {
       setProgress(p as number); setProgressLabel(label as string)
     }
 
-    // Choose sample data
     const lower = prompt.toLowerCase()
     const key = lower.includes("budget") ? "budget" : lower.includes("sales") || lower.includes("pipeline") ? "sales" : "budget"
     setSheets(SAMPLE_SHEETS[key])
@@ -245,10 +229,7 @@ export default function ExcelSheet() {
       <Header toggleSidebar={() => setSidebarOpen(p => !p)} />
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         <Sidebar isOpen={sidebarOpen} />
-
         <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-2)" }}>
-
-          {/* Top bar */}
           <div style={{
             display: "flex", alignItems: "center", gap: 8, padding: "0 14px",
             height: 44, borderBottom: "1px solid var(--border)", background: "var(--bg)",
@@ -258,8 +239,6 @@ export default function ExcelSheet() {
               EXCEL SHEET
             </div>
             <div className="divider-v" style={{ height: 16, margin: "0 4px" }}/>
-
-            {/* Mode selector */}
             <div style={{ display: "flex", gap: 2 }}>
               {(["excel", "document", "chart", "pivot", "formula"] as GenMode[]).map(m => (
                 <button key={m} className={`btn btn-xs ${genMode === m ? "btn-primary" : "btn-ghost"}`}
@@ -269,7 +248,6 @@ export default function ExcelSheet() {
                 </button>
               ))}
             </div>
-
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               {hasResult && (
                 <>
@@ -286,7 +264,6 @@ export default function ExcelSheet() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div style={{
             display: "flex", gap: 0,
             borderBottom: "1px solid var(--border)",
@@ -306,14 +283,9 @@ export default function ExcelSheet() {
             ))}
           </div>
 
-          {/* Content */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
-
-            {/* ── GENERATE TAB ────────────────────────────────── */}
             {activeTab === "generate" && (
               <div style={{ flex: 1, display: "flex", overflowY: "auto", padding: "24px", gap: 20 }}>
-
-                {/* Prompt area */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, maxWidth: 600 }}>
                   <div>
                     <h2 style={{ marginBottom: 4, fontSize: "1rem" }}>
@@ -332,11 +304,7 @@ export default function ExcelSheet() {
                       value={prompt}
                       onChange={e => setPrompt(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate() }}
-                      placeholder={
-                        genMode === "formula" ? "Describe your formula: \"Sum values in column B where column A equals 'Sales' and column C > 1000\""
-                        : genMode === "pivot" ? "Describe your pivot: \"Pivot table of sales by region and product category with totals\""
-                        : "Describe your spreadsheet: \"Monthly budget tracker for a startup with income, expenses, and profit/loss with conditional formatting for negative values\""
-                      }
+                      placeholder={genMode === "formula" ? 'Describe your formula: "Sum values in column B where column A equals Sales and column C > 1000"' : genMode === "pivot" ? 'Describe your pivot: "Pivot table of sales by region and product category with totals"' : 'Describe your spreadsheet: "Monthly budget tracker for a startup with income, expenses, and profit/loss with conditional formatting for negative values"'}
                       style={{
                         border: "none", borderRadius: 0, resize: "none",
                         minHeight: 120, boxShadow: "none", fontSize: "0.875rem",
@@ -368,7 +336,6 @@ export default function ExcelSheet() {
                     </div>
                   </div>
 
-                  {/* Progress */}
                   {generating && (
                     <div style={{ padding: "16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -381,7 +348,6 @@ export default function ExcelSheet() {
                     </div>
                   )}
 
-                  {/* Quick templates */}
                   <div>
                     <div style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
                       Quick Templates
@@ -412,7 +378,6 @@ export default function ExcelSheet() {
                   </div>
                 </div>
 
-                {/* Sidebar: History */}
                 <div style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
                     <div className="panel-header">Recent Prompts</div>
@@ -449,7 +414,6 @@ export default function ExcelSheet() {
               </div>
             )}
 
-            {/* ── PREVIEW TAB ─────────────────────────────────── */}
             {activeTab === "preview" && (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 {!hasResult ? (
@@ -461,7 +425,6 @@ export default function ExcelSheet() {
                   </div>
                 ) : (
                   <>
-                    {/* Formula bar */}
                     <div style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "0 10px",
                       height: 32, borderBottom: "1px solid var(--border)", flexShrink: 0,
@@ -483,7 +446,6 @@ export default function ExcelSheet() {
                       />
                     </div>
 
-                    {/* Sheet content */}
                     <div style={{ flex: 1, overflow: "auto", position: "relative" }}>
                       <div style={{ display: "inline-flex", minWidth: "100%" }}>
                         <table style={{ borderCollapse: "collapse", tableLayout: "fixed", fontSize: "0.75rem" }}>
@@ -521,7 +483,6 @@ export default function ExcelSheet() {
                       </div>
                     </div>
 
-                    {/* Sheet tabs */}
                     <div style={{
                       display: "flex", alignItems: "center", gap: 0,
                       borderTop: "1px solid var(--border)", height: 32, paddingLeft: 8,
@@ -545,7 +506,6 @@ export default function ExcelSheet() {
               </div>
             )}
 
-            {/* ── CODE TAB ────────────────────────────────────── */}
             {activeTab === "code" && (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 {!hasResult ? (
@@ -591,7 +551,6 @@ export default function ExcelSheet() {
               </div>
             )}
 
-            {/* ── CHART TAB ───────────────────────────────────── */}
             {activeTab === "chart" && (
               <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", gap: 20 }}>
                 {!hasResult ? (
@@ -627,7 +586,6 @@ export default function ExcelSheet() {
             )}
           </div>
         </main>
-
         <AIChatPanel />
       </div>
     </div>
