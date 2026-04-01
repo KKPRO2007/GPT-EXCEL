@@ -1,110 +1,100 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import { RootState } from '..';
-import Sidebar from '../components/Sidebar';
-import Header from '../components/Header';
-import AIChatPanel from '../components/AIChatPanel';
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useSelector } from 'react-redux'
+import { RootState } from '../index'
+import Sidebar from '../components/Sidebar'
+import Header from '../components/Header'
+import AIChatPanel from '../components/AIChatPanel'
+import { api } from '../api'
 
-interface FileItem {
-  id: string;
-  name: string;
-  type: 'excel' | 'doc' | 'pdf' | 'csv' | 'pptx';
-  modified: string;
-  size: string;
-  starred: boolean;
-}
-
-interface Activity {
-  id: string;
-  icon: string;
-  text: string;
-  time: string;
-  type: 'success' | 'info' | 'warning';
-}
-
-const SAMPLE_FILES: FileItem[] = [
-  { id: '1', name: 'Q4 Financial Model.xlsx', type: 'excel', modified: '2 min ago', size: '1.2 MB', starred: true },
-  { id: '2', name: 'Sales Dashboard 2026.xlsx', type: 'excel', modified: '1 hr ago', size: '840 KB', starred: false },
-  { id: '3', name: 'Project Proposal.docx', type: 'doc', modified: '3 hr ago', size: '320 KB', starred: true },
-  { id: '4', name: 'Customer Data Export.csv', type: 'csv', modified: 'Yesterday', size: '4.1 MB', starred: false },
-  { id: '5', name: 'Annual Report 2025.pdf', type: 'pdf', modified: '2 days ago', size: '2.8 MB', starred: false },
-  { id: '6', name: 'Q4 Pitch Deck.pptx', type: 'pptx', modified: '3 days ago', size: '5.2 MB', starred: true },
-];
-
-const ACTIVITIES: Activity[] = [
-  { id: '1', icon: '⊞', text: 'Generated "Q4 Revenue Forecast" — 12 sheets', time: '2m ago', type: 'success' },
-  { id: '2', icon: '◱', text: 'Document "Project Proposal" exported as PDF', time: '1h ago', type: 'info' },
-  { id: '3', icon: '◎', text: 'Voice command: "Create pivot table for sales data"', time: '2h ago', type: 'success' },
-  { id: '4', icon: '◈', text: '43 files categorized and tagged automatically', time: '4h ago', type: 'success' },
-  { id: '5', icon: '⌘', text: 'Workflow "Weekly Report" scheduled', time: 'Yesterday', type: 'info' },
-  { id: '6', icon: '◬', text: 'API rate limit warning — 89% of free tier used', time: 'Yesterday', type: 'warning' },
-];
-
-const METRICS = [
-  { label: 'Files Generated', value: '248', change: '+12 today', up: true, sparkline: [4, 6, 5, 8, 7, 9, 11, 10, 12, 14, 13, 16] },
-  { label: 'Tokens Used', value: '1.2M', change: '+84k today', up: true, sparkline: [20, 22, 18, 25, 30, 28, 35, 33, 40, 38, 42, 45] },
-  { label: 'Storage Used', value: '3.4 GB', change: '+120 MB', up: true, sparkline: [10, 12, 13, 14, 15, 17, 19, 20, 22, 24, 25, 27] },
-  { label: 'Free Tier Left', value: '23%', change: '27 remaining', up: false, sparkline: [80, 74, 68, 62, 55, 49, 43, 38, 34, 30, 27, 23] },
-];
-
-const Sparkline = ({ data, color }: { data: number[]; color?: string }) => {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const norm = (v: number) => 1 - (v - min) / (max - min || 1);
-  const w = 64;
-  const h = 24;
-  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${norm(v) * h}`).join(' ');
+const Sparkline = ({ data, color = 'var(--accent)' }: { data: number[]; color?: string }) => {
+  const max = Math.max(...data), min = Math.min(...data)
+  const norm = (v: number) => 1 - (v - min) / (max - min || 1)
+  const w = 64, h = 28
+  const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${norm(v) * h}`).join(' ')
   return (
     <svg width={w} height={h} style={{ overflow: 'visible' }}>
-      <polyline points={points} fill="none" stroke={color || 'var(--accent)'} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={(data.length - 1) / (data.length - 1) * w} cy={norm(data[data.length - 1]) * h} r={2.5} fill={color} />
     </svg>
-  );
-};
+  )
+}
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [files, setFiles] = useState<FileItem[]>(SAMPLE_FILES);
-  const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'recent' | 'starred'>('recent');
-  const [greeting, setGreeting] = useState('');
-  const [prompt, setPrompt] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-  const user = useSelector((state: RootState) => state.app.user);
+  const navigate = useNavigate()
+  const user = useSelector((s: RootState) => s.app.user)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [stats, setStats] = useState<any>(null)
+  const [recentFiles, setRecentFiles] = useState<any[]>([])
+  const [prompt, setPrompt] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [greeting, setGreeting] = useState('')
+  const [backendOnline, setBackendOnline] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    const h = new Date().getHours();
-    setGreeting(h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening');
-  }, []);
+    const h = new Date().getHours()
+    setGreeting(h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening')
+    loadData()
+  }, [])
 
-  const filteredFiles = files
-    .filter(f => (activeTab === 'starred' ? f.starred : true))
-    .filter(f => f.name.toLowerCase().includes(search.toLowerCase()));
+  const loadData = async () => {
+    try {
+      await api.health()
+      setBackendOnline(true)
+      const [dashStats, files] = await Promise.all([api.getDashboardStats(), api.getFiles()])
+      setStats(dashStats)
+      setRecentFiles((files as any[]).slice(-6).reverse())
+    } catch {
+      setBackendOnline(false)
+    }
+  }
 
-  const toggleStar = (id: string) => {
-    setFiles(prev => prev.map(f => (f.id === id ? { ...f, starred: !f.starred } : f)));
-  };
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false)
+    const files = Array.from(e.dataTransfer.files).filter(f => /\.(xlsx|xls|csv)$/i.test(f.name))
+    if (!files.length) return
+    try {
+      await api.uploadFiles(files, user?.department || 'general', user?.email || 'user')
+      loadData()
+      navigate('/excel')
+    } catch {}
+  }
 
   const handlePrompt = async () => {
-    if (!prompt.trim()) return;
-    setGenerating(true);
-    await new Promise(r => setTimeout(r, 1500));
-    setGenerating(false);
-    navigate('/excel');
-  };
+    if (!prompt.trim()) return
+    setGenerating(true)
+    await new Promise(r => setTimeout(r, 600))
+    setGenerating(false)
+    navigate('/excel')
+  }
 
-  const getFileIcon = (type: FileItem['type']) => {
-    const map = {
-      excel: { icon: 'XL', color: 'var(--success)' },
-      doc: { icon: 'W', color: 'var(--accent)' },
-      pdf: { icon: 'PDF', color: 'var(--error)' },
-      csv: { icon: 'CSV', color: 'var(--warning)' },
-      pptx: { icon: 'PPT', color: 'var(--accent)' },
-    };
-    return map[type];
-  };
+  const METRICS = [
+    { label: 'Total Files', value: stats?.totalFiles ?? '—', change: 'uploaded', up: true, sparkline: [2,4,3,6,5,7,8,7,9,10,11,stats?.totalFiles||0], color: 'var(--blue)' },
+    { label: 'Faculty Users', value: stats?.totalUsers ?? '—', change: 'active', up: true, sparkline: [10,12,14,13,16,18,20,22,24,26,28,stats?.totalUsers||0], color: 'var(--green)' },
+    { label: 'Workflows', value: stats?.activeWorkflows ?? '—', change: 'active', up: true, sparkline: [1,1,2,2,3,3,4,4,5,5,6,stats?.activeWorkflows||0], color: 'var(--purple)' },
+    { label: 'Departments', value: stats?.departments?.length ?? '—', change: 'connected', up: true, sparkline: [1,2,2,3,3,4,4,5,5,6,6,stats?.departments?.length||0], color: 'var(--orange)' },
+  ]
+
+  const getFileIcon = (type: string) => {
+    const icons: Record<string, { icon: string; color: string }> = {
+      xlsx: { icon: 'XL', color: 'var(--green)' }, xls: { icon: 'XL', color: 'var(--green)' },
+      csv: { icon: 'CSV', color: 'var(--teal)' }, pdf: { icon: 'PDF', color: 'var(--red)' },
+      docx: { icon: 'W', color: 'var(--blue)' }, doc: { icon: 'W', color: 'var(--blue)' },
+      pptx: { icon: 'PPT', color: 'var(--orange)' },
+    }
+    return icons[type] || { icon: type.toUpperCase().slice(0, 3), color: 'var(--text-muted)' }
+  }
+
+  const quickActions = [
+    { icon: '⊞', label: 'Analyze Excel', color: 'var(--green)', path: '/excel' },
+    { icon: '◱', label: 'File Manager', color: 'var(--blue)', path: '/file-manager' },
+    { icon: '◬', label: 'Compare Files', color: 'var(--purple)', path: '/excel' },
+    { icon: '◱', label: 'Generate Doc', color: 'var(--orange)', path: '/documents' },
+    { icon: '⌘', label: 'Workflows', color: 'var(--teal)', path: '/workflow' },
+    { icon: '⚙', label: 'Settings', color: 'var(--text-muted)', path: '/settings' },
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg)' }}>
@@ -112,267 +102,154 @@ export default function Dashboard() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar isOpen={sidebarOpen} />
         <main style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-2)', padding: '24px 28px' }}>
-          {/* Greeting + Quick Prompt */}
-          <div style={{ marginBottom: 24 }}>
+
+          {/* Backend status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: backendOnline ? 'var(--green)' : 'var(--red)' }} />
+            <span style={{ color: 'var(--text-muted)' }}>{backendOnline ? 'Backend online · localhost:3001' : 'Backend offline — run: cd server && npm start'}</span>
+          </div>
+
+          {/* Greeting */}
+          <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
-            <h1 style={{ fontSize: '1.5rem', letterSpacing: -0.5, marginBottom: 8 }}>
+            <h1 style={{ fontSize: '1.5rem', letterSpacing: -0.5, marginBottom: 4 }}>
               {greeting}, {user?.name?.split(' ')[0] || 'there'}.
             </h1>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              You have <span style={{ color: 'var(--accent)', fontWeight: 600 }}>23 generations</span> remaining.
+              {user?.department && <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{user.department}</span>}
+              {user?.department && ' · '}
+              Analyze student data, compare sections, generate reports.
             </p>
           </div>
 
-          {/* Quick Prompt Bar */}
+          {/* Drop zone prompt bar */}
           <div
-            className="prompt-area"
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
             style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              overflow: 'hidden',
-              marginBottom: 24,
+              background: dragOver ? 'var(--accent-dim)' : 'var(--surface)',
+              border: `1px ${dragOver ? 'solid' : 'solid'} ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
+              borderRadius: 10, overflow: 'hidden', marginBottom: 20,
+              transition: 'all 0.2s'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px' }}>
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  background: 'var(--surface-2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 12,
-                  flexShrink: 0,
-                  marginTop: 2,
-                }}
-              >
-                ⊞
-              </div>
+            <div style={{ display: 'flex', gap: 10, padding: '12px 14px' }}>
+              <div style={{ width: 28, height: 28, background: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, borderRadius: 6, flexShrink: 0, marginTop: 1 }}>⊞</div>
               <textarea
                 ref={promptRef}
                 className="input"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handlePrompt();
-                }}
-                placeholder='Ask GPT-EXCEL anything… "Create a Q4 sales forecast" or "Build a KPI dashboard"'
-                style={{
-                  flex: 1,
-                  border: 'none',
-                  background: 'transparent',
-                  resize: 'none',
-                  minHeight: 20,
-                  maxHeight: 120,
-                  boxShadow: 'none',
-                  fontSize: '0.875rem',
-                  padding: 0,
-                  lineHeight: 1.6,
-                }}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handlePrompt() }}
+                placeholder={dragOver ? 'Drop Excel files here to analyze...' : 'Ask anything or drag & drop Excel files... "Analyze Q4 results" or "Compare section A and B"'}
+                style={{ flex: 1, border: 'none', background: 'transparent', resize: 'none', minHeight: 22, maxHeight: 100, boxShadow: 'none', fontSize: '0.875rem', padding: 0, lineHeight: 1.6 }}
                 rows={1}
-                onInput={e => {
-                  const el = e.currentTarget;
-                  el.style.height = 'auto';
-                  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
-                }}
+                onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 90) + 'px' }}
               />
             </div>
-            <div
-              className="prompt-footer"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 14px',
-                borderTop: '1px solid var(--border)',
-                background: 'var(--bg-3)',
-              }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderTop: '1px solid var(--border)', background: 'var(--bg-3)' }}>
               <div style={{ display: 'flex', gap: 6 }}>
-                {['Excel', 'Document', 'Chart', 'Pivot', 'Dashboard'].map(t => (
-                  <button
-                    key={t}
-                    className="btn btn-xs btn-outline"
-                    onClick={() => setPrompt(p => (p ? p + ` [${t}]` : `Create a ${t.toLowerCase()}: `))}
-                  >
-                    {t}
-                  </button>
+                {['Analyze Excel', 'Top Students', 'Section Compare', 'Below 75%'].map(t => (
+                  <button key={t} className="btn btn-xs btn-outline" onClick={() => { setPrompt(t); promptRef.current?.focus() }}>{t}</button>
                 ))}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  <kbd>⌘</kbd>
-                  <kbd>↵</kbd>
-                </span>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={handlePrompt}
-                  disabled={!prompt.trim() || generating}
-                  style={{ minWidth: 80 }}
-                >
-                  {generating ? (
-                    <>
-                      <span className="spinner" style={{ width: 12, height: 12 }} /> Generating
-                    </>
-                  ) : (
-                    'Generate →'
-                  )}
-                </button>
-              </div>
+              <button className="btn btn-primary btn-sm" onClick={handlePrompt} disabled={!prompt.trim() || generating} style={{ minWidth: 90 }}>
+                {generating ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Running</> : 'Go →'}
+              </button>
             </div>
           </div>
 
           {/* Metrics */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
             {METRICS.map((m, i) => (
-              <div key={i} className="metric-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px' }}>
+              <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', transition: 'border-color 0.2s' }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = m.color)}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem', fontWeight: 800, letterSpacing: -0.5, color: 'var(--text)' }}>
-                      {m.value}
-                    </div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.6rem', fontWeight: 800, letterSpacing: -0.5, color: m.color }}>{m.value}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{m.label}</div>
                   </div>
-                  <Sparkline data={m.sparkline} color={m.up ? 'var(--success)' : 'var(--error)'} />
+                  <Sparkline data={m.sparkline} color={m.color} />
                 </div>
-                <div style={{ marginTop: 8, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: m.up ? 'var(--success)' : 'var(--error)' }}>
-                  {m.up ? '↑' : '↓'} {m.change}
-                </div>
+                <div style={{ marginTop: 8, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: m.color }}>● {m.change}</div>
               </div>
             ))}
           </div>
 
-          {/* Files & Activity */}
-          <div style={{ display: 'flex', gap: 20 }}>
-            {/* Files Section */}
-            <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-                <div className="tabs" style={{ flex: 1 }}>
-                  {(['recent', 'starred'] as const).map(tab => (
-                    <div key={tab} className={`tab${activeTab === tab ? ' active' : ''}`} onClick={() => setActiveTab(tab)} style={{ textTransform: 'capitalize' }}>
-                      {tab}
-                    </div>
-                  ))}
-                </div>
-                <div className="search-bar" style={{ width: 180 }}>
-                  <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <circle cx={11} cy={11} r={8} />
-                    <path d="m21 21-4.35-4.35" />
-                  </svg>
-                  <input placeholder="Search files..." value={search} onChange={e => setSearch(e.target.value)} />
-                </div>
-                <button className="btn btn-primary btn-sm" onClick={() => navigate('/excel')}>
-                  + New
-                </button>
+          {/* Quick actions + recent files */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, marginBottom: 16 }}>
+            {/* Recent files */}
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text)' }}>Recent Files</span>
+                <button className="btn btn-primary btn-sm" onClick={() => navigate('/file-manager')}>View All</button>
               </div>
-              <div style={{ overflowY: 'auto', maxHeight: 300 }}>
-                {filteredFiles.map(f => {
-                  const icon = getFileIcon(f.type);
-                  return (
-                    <div
-                      key={f.id}
-                      className="file-row"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '9px 14px',
-                        borderBottom: '1px solid var(--border)',
-                        cursor: 'pointer',
-                        transition: 'background var(--tr)',
-                      }}
-                      onDoubleClick={() => navigate('/excel')}
-                    >
-                      <div
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 6,
-                          background: 'var(--surface-2)',
-                          border: '1px solid var(--border)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.6rem',
-                          fontFamily: 'var(--font-mono)',
-                          fontWeight: 700,
-                          color: icon.color,
-                        }}
-                      >
-                        {icon.icon}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text)' }}>{f.name}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                          {f.modified} · {f.size}
-                        </div>
-                      </div>
-                      <div className="file-actions">
-                        <button
-                          className="btn btn-icon-sm btn-ghost"
-                          onClick={e => {
-                            e.stopPropagation();
-                            toggleStar(f.id);
-                          }}
-                          style={{ color: f.starred ? 'var(--warning)' : 'var(--text-muted)' }}
-                        >
-                          {f.starred ? '★' : '☆'}
-                        </button>
-                        <button className="btn btn-icon-sm btn-ghost">↗</button>
-                        <button className="btn btn-icon-sm btn-ghost">↓</button>
-                      </div>
+              {recentFiles.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                  <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.4 }}>⊞</div>
+                  No files yet. Upload Excel files to get started.
+                  <br /><button className="btn btn-primary btn-sm" style={{ marginTop: 12 }} onClick={() => navigate('/file-manager')}>Upload Files</button>
+                </div>
+              ) : recentFiles.map(f => {
+                const icon = getFileIcon(f.type)
+                return (
+                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background var(--tr)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    onClick={() => navigate('/excel')}
+                  >
+                    <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: icon.color, flexShrink: 0 }}>{icon.icon}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{f.department} · {(f.size / 1024).toFixed(1)} KB</div>
                     </div>
-                  );
-                })}
-              </div>
+                    <button className="btn btn-xs btn-outline" onClick={e => { e.stopPropagation(); navigate('/excel') }}>Analyze</button>
+                  </div>
+                )
+              })}
             </div>
 
-            {/* Activity */}
-            <div style={{ width: 260, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-              <div className="panel-header">Activity Feed</div>
-              <div style={{ padding: '6px 0' }}>
-                {ACTIVITIES.map(a => (
-                  <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 14px' }}>
-                    <div
-                      style={{
-                        width: 28,
-                        height: 28,
-                        flexShrink: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background:
-                          a.type === 'success'
-                            ? 'var(--success-dim)'
-                            : a.type === 'warning'
-                            ? 'var(--warning-dim)'
-                            : 'var(--accent-dim)',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color:
-                          a.type === 'success' ? 'var(--success)' : a.type === 'warning' ? 'var(--warning)' : 'var(--accent)',
-                      }}
-                    >
-                      {a.icon}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text)' }}>{a.text}</div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>{a.time}</div>
-                    </div>
-                  </div>
+            {/* Quick actions */}
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text)' }}>Quick Actions</div>
+              <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {quickActions.map(a => (
+                  <button key={a.label} onClick={() => navigate(a.path)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left' }}
+                    onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = a.color; el.style.background = `${a.color}10` }}
+                    onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--border)'; el.style.background = 'var(--surface-2)' }}
+                  >
+                    <span style={{ color: a.color, fontSize: 16, width: 20, textAlign: 'center' }}>{a.icon}</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text)', fontWeight: 500 }}>{a.label}</span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 12 }}>→</span>
+                  </button>
                 ))}
               </div>
             </div>
           </div>
+
+          {/* Department overview */}
+          {stats?.departments && stats.departments.length > 0 && (
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px', marginBottom: 16 }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Departments</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {stats.departments.map((dept: string, i: number) => {
+                  const colors = ['var(--blue)', 'var(--green)', 'var(--purple)', 'var(--orange)', 'var(--teal)']
+                  const c = colors[i % colors.length]
+                  return (
+                    <div key={dept} style={{ padding: '6px 14px', background: `${c}12`, border: `1px solid ${c}30`, borderRadius: 20, fontSize: '0.78rem', color: c, fontWeight: 500 }}>{dept}</div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </main>
         <AIChatPanel />
       </div>
     </div>
-  );
+  )
 }

@@ -1,325 +1,356 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { RootState } from '../index';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import AIChatPanel from '../components/AIChatPanel';
+import { api } from '../api';
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+} from 'recharts';
 
-type Tab = 'generate' | 'preview' | 'code' | 'chart';
-type GenMode = 'excel' | 'document' | 'chart' | 'pivot' | 'formula';
+type Tab = 'upload' | 'preview' | 'edit' | 'analyze' | 'charts' | 'create';
 
-interface Cell {
+interface CellData {
   value: string;
   formula?: string;
   bold?: boolean;
-  align?: 'left' | 'center' | 'right';
+  color?: string;
+  bg?: string;
 }
-type SheetData = Cell[][];
 
-const SAMPLE_SHEETS: Record<string, { name: string; data: SheetData }[]> = {
-  budget: [
-    {
-      name: 'Budget 2025',
-      data: [
-        [
-          { value: 'Category', bold: true },
-          { value: 'Jan', bold: true },
-          { value: 'Feb', bold: true },
-          { value: 'Mar', bold: true },
-          { value: 'Q1 Total', bold: true },
-        ],
-        [
-          { value: 'Salaries' },
-          { value: '45000' },
-          { value: '45000' },
-          { value: '45000' },
-          { value: '135000', formula: '=B2+C2+D2' },
-        ],
-        [
-          { value: 'Marketing' },
-          { value: '8500' },
-          { value: '9200' },
-          { value: '7800' },
-          { value: '25500', formula: '=B3+C3+D3' },
-        ],
-        [
-          { value: 'Operations' },
-          { value: '12000' },
-          { value: '11500' },
-          { value: '13200' },
-          { value: '36700', formula: '=B4+C4+D4' },
-        ],
-        [
-          { value: 'Technology' },
-          { value: '5200' },
-          { value: '4800' },
-          { value: '6100' },
-          { value: '16100', formula: '=B5+C5+D5' },
-        ],
-        [
-          { value: 'Travel' },
-          { value: '3400' },
-          { value: '2100' },
-          { value: '4500' },
-          { value: '10000', formula: '=B6+C6+D6' },
-        ],
-        [
-          { value: 'Total', bold: true },
-          { value: '=SUM(B2:B6)', formula: '74100' },
-          { value: '=SUM(C2:C6)', formula: '72600' },
-          { value: '=SUM(D2:D6)', formula: '76600' },
-          { value: '=SUM(E2:E6)', formula: '223300' },
-        ],
-      ],
-    },
-  ],
-  sales: [
-    {
-      name: 'Sales Pipeline',
-      data: [
-        [
-          { value: 'Deal Name', bold: true },
-          { value: 'Stage', bold: true },
-          { value: 'Value', bold: true },
-          { value: 'Probability', bold: true },
-          { value: 'Weighted', bold: true },
-          { value: 'Close Date', bold: true },
-        ],
-        [
-          { value: 'Acme Corp' },
-          { value: 'Proposal' },
-          { value: '85000' },
-          { value: '60%' },
-          { value: '51000', formula: '=C2*D2' },
-          { value: 'Mar 2025' },
-        ],
-        [
-          { value: 'TechStart Inc' },
-          { value: 'Negotiation' },
-          { value: '120000' },
-          { value: '80%' },
-          { value: '96000', formula: '=C3*D3' },
-          { value: 'Feb 2025' },
-        ],
-        [
-          { value: 'Global Finance' },
-          { value: 'Discovery' },
-          { value: '45000' },
-          { value: '25%' },
-          { value: '11250', formula: '=C4*D4' },
-          { value: 'Apr 2025' },
-        ],
-        [
-          { value: 'Retail Plus' },
-          { value: 'Closed Won' },
-          { value: '67000' },
-          { value: '100%' },
-          { value: '67000', formula: '=C5*D5' },
-          { value: 'Jan 2025' },
-        ],
-        [
-          { value: 'Total', bold: true },
-          { value: '' },
-          { value: '=SUM(C2:C5)', formula: '317000' },
-          { value: '' },
-          { value: '=SUM(E2:E5)', formula: '225250' },
-          { value: '' },
-        ],
-      ],
-    },
-  ],
-  default: [
-    {
-      name: 'Sheet 1',
-      data: [
-        [{ value: 'A', bold: true }, { value: 'B', bold: true }, { value: 'C', bold: true }],
-        [{ value: '' }, { value: '' }, { value: '' }],
-        [{ value: '' }, { value: '' }, { value: '' }],
-      ],
-    },
-  ],
-};
+interface SheetData {
+  name: string;
+  data: CellData[][];
+  rows: number;
+  cols: number;
+}
 
-const SAMPLE_CODE: Record<string, string> = {
-  budget: `import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
-
-wb = openpyxl.Workbook()
-ws = wb.active
-ws.title = "Budget 2025"
-
-headers = ["Category", "Jan", "Feb", "Mar", "Q1 Total"]
-for col, header in enumerate(headers, 1):
-    cell = ws.cell(row=1, column=col, value=header)
-    cell.font = Font(bold=True, color="FFFFFF")
-    cell.fill = PatternFill("solid", fgColor="111111")
-    cell.alignment = Alignment(horizontal="center")
-
-data = [
-    ("Salaries",    45000, 45000, 45000),
-    ("Marketing",    8500,  9200,  7800),
-    ("Operations",  12000, 11500, 13200),
-    ("Technology",   5200,  4800,  6100),
-    ("Travel",       3400,  2100,  4500),
-]
-
-for row_idx, (cat, jan, feb, mar) in enumerate(data, 2):
-    ws.cell(row=row_idx, column=1, value=cat)
-    ws.cell(row=row_idx, column=2, value=jan)
-    ws.cell(row=row_idx, column=3, value=feb)
-    ws.cell(row=row_idx, column=4, value=mar)
-    ws.cell(row=row_idx, column=5, value=f"=B{row_idx}+C{row_idx}+D{row_idx}")
-
-total_row = len(data) + 2
-ws.cell(row=total_row, column=1, value="Total").font = Font(bold=True)
-for col in range(2, 6):
-    col_letter = get_column_letter(col)
-    ws.cell(row=total_row, column=col, value=f"=SUM({col_letter}2:{col_letter}{total_row-1})")
-
-ws.column_dimensions["A"].width = 16
-for col in "BCDE":
-    ws.column_dimensions[col].width = 12
-
-wb.save("budget_2025.xlsx")
-print("✓ Budget generated successfully")`,
-  sales: `import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-
-wb = openpyxl.Workbook()
-ws = wb.active
-ws.title = "Sales Pipeline"
-
-headers = ["Deal Name", "Stage", "Value ($)", "Probability", "Weighted Value", "Close Date"]
-for col, h in enumerate(headers, 1):
-    cell = ws.cell(row=1, column=col, value=h)
-    cell.font = Font(bold=True)
-    cell.fill = PatternFill("solid", fgColor="111111")
-
-deals = [
-    ("Acme Corp",      "Proposal",    85000, 0.60, "Mar 2025"),
-    ("TechStart Inc",  "Negotiation", 120000, 0.80, "Feb 2025"),
-    ("Global Finance", "Discovery",   45000, 0.25, "Apr 2025"),
-    ("Retail Plus",    "Closed Won",  67000, 1.00, "Jan 2025"),
-]
-
-for i, (name, stage, val, prob, date) in enumerate(deals, 2):
-    ws.cell(row=i, column=1, value=name)
-    ws.cell(row=i, column=2, value=stage)
-    ws.cell(row=i, column=3, value=val)
-    ws.cell(row=i, column=4, value=f"{int(prob*100)}%")
-    ws.cell(row=i, column=5, value=f"=C{i}*{prob}")
-    ws.cell(row=i, column=6, value=date)
-
-wb.save("sales_pipeline.xlsx")
-print("✓ Sales pipeline generated")`,
-};
-
-const BarChart = ({ data }: { data: { label: string; value: number }[] }) => {
-  const max = Math.max(...data.map(d => d.value));
-  const W = 320;
-  const H = 160;
-  const pad = 30;
-  return (
-    <svg width={W} height={H} style={{ fontFamily: 'var(--font-mono)' }}>
-      {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
-        const y = pad + (H - pad * 2) * (1 - ratio);
-        return (
-          <g key={ratio}>
-            <line x1={pad} y1={y} x2={W - 10} y2={y} stroke="var(--border)" strokeWidth={1} />
-            <text x={pad - 4} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize={8}>
-              {Math.round((max * ratio) / 1000)}k
-            </text>
-          </g>
-        );
-      })}
-      {data.map((d, i) => {
-        const barW = (W - pad * 2 - 10) / data.length - 6;
-        const x = pad + i * ((W - pad * 2 - 10) / data.length) + 3;
-        const barH = (d.value / max) * (H - pad * 2);
-        const y = pad + (H - pad * 2) - barH;
-        return (
-          <g key={i}>
-            <rect x={x} y={y} width={barW} height={barH} fill="var(--accent)" opacity={0.85} rx={2} />
-            <text x={x + barW / 2} y={H - 4} textAnchor="middle" fill="var(--text-muted)" fontSize={8}>
-              {d.label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-};
+const COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#f97316', '#14b8a6', '#eab308', '#ec4899', '#ef4444'];
 
 export default function ExcelSheet() {
   const navigate = useNavigate();
+  const user = useSelector((s: RootState) => s.app.user);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('generate');
-  const [genMode, setGenMode] = useState<GenMode>('excel');
-  const [prompt, setPrompt] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState('');
-  const [sheets, setSheets] = useState(SAMPLE_SHEETS.default);
+  const [activeTab, setActiveTab] = useState<Tab>('upload');
+  const [files, setFiles] = useState<any[]>([]);
+  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [sheets, setSheets] = useState<SheetData[]>([]);
   const [activeSheet, setActiveSheet] = useState(0);
-  const [code, setCode] = useState('');
-  const [selectedCell, setSelectedCell] = useState<[number, number] | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ row: number; col: number } | null>(null);
   const [formulaBar, setFormulaBar] = useState('');
-  const [hasResult, setHasResult] = useState(false);
-  const [historyItems, setHistoryItems] = useState<string[]>([
-    'Monthly budget tracker with charts',
-    'Sales pipeline Q4 forecast',
-  ]);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [stats, setStats] = useState<any>(null);
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie' | 'area' | 'radar'>('bar');
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [createPrompt, setCreatePrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [backendOnline, setBackendOnline] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debugInfo, setDebugInfo] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || generating) return;
-    setGenerating(true);
-    setProgress(0);
-    setHistoryItems(prev => [prompt, ...prev.slice(0, 9)]);
+  // Load files on mount
+  useEffect(() => {
+    checkBackend();
+    loadFiles();
+  }, []);
 
-    const steps = [
-      [15, 'Analyzing prompt...'],
-      [35, 'Generating Python code...'],
-      [60, 'Executing with openpyxl...'],
-      [80, 'Building spreadsheet...'],
-      [95, 'Finalizing output...'],
-      [100, 'Done!'],
-    ];
-
-    for (const [p, label] of steps) {
-      await new Promise(r => setTimeout(r, 280 + Math.random() * 200));
-      setProgress(p as number);
-      setProgressLabel(label as string);
+  const checkBackend = async () => {
+    try {
+      const health = await api.health();
+      console.log('Backend health:', health);
+      setBackendOnline(true);
+    } catch (err) {
+      console.error('Backend offline:', err);
+      setBackendOnline(false);
+      setError('Backend offline. Run: cd server && npm start');
     }
+  };
 
-    const lower = prompt.toLowerCase();
-    const key = lower.includes('budget') ? 'budget' : lower.includes('sales') || lower.includes('pipeline') ? 'sales' : 'budget';
-    setSheets(SAMPLE_SHEETS[key]);
-    setCode(SAMPLE_CODE[key] || SAMPLE_CODE.budget);
-    setHasResult(true);
+  const loadFiles = async () => {
+    setLoading(true);
+    setDebugInfo('Loading files...');
+    try {
+      const params: any = {};
+      if (searchQuery) params.search = searchQuery;
+      const res = await api.getFiles(params);
+      console.log('Files loaded from API:', res);
+      setDebugInfo(`Found ${res.length} files`);
+      setFiles(res);
+    } catch (err: any) {
+      console.error('Load files error:', err);
+      setDebugInfo(`Error: ${err.message}`);
+      setError('Failed to load files: ' + err.message);
+    }
+    setLoading(false);
+  };
+
+  const handleUpload = async (fileList: File[]) => {
+    if (!fileList.length) return;
+    setUploading(true);
+    setError('');
+    setDebugInfo(`Uploading ${fileList.length} files...`);
+    
+    try {
+      const result = await api.uploadFiles(
+        Array.from(fileList),
+        user?.department || 'general',
+        user?.email || 'user'
+      );
+      console.log('Upload result:', result);
+      setDebugInfo(`Uploaded ${result.files?.length || fileList.length} files`);
+      setSuccess(`✓ Uploaded ${fileList.length} file(s)`);
+      
+      // Reload files after upload
+      await loadFiles();
+      
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      console.error('Upload error:', err);
+      setDebugInfo(`Upload error: ${err.message}`);
+      setError(err.message || 'Upload failed');
+      setTimeout(() => setError(''), 5000);
+    }
+    setUploading(false);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) {
+      console.log('Selected files:', e.target.files);
+      handleUpload(Array.from(e.target.files));
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter(f => 
+      /\.(xlsx|xls|csv)$/i.test(f.name)
+    );
+    console.log('Dropped files:', files);
+    if (files.length) await handleUpload(files);
+  };
+
+  const handleSelectFile = async (file: any) => {
+    console.log('Selecting file:', file);
+    setSelectedFile(file);
+    setAnalyzing(true);
+    setError('');
+    
+    try {
+      const res = await api.analyzeFile(file.id);
+      console.log('Analysis result:', res);
+      
+      const loadedSheets: SheetData[] = [];
+      if (res.sheets && Object.keys(res.sheets).length > 0) {
+        Object.entries(res.sheets).forEach(([name, data]: [string, any]) => {
+          const rows = data?.students || [];
+          const markCols = data?.markCols || ['Name', 'Roll', 'Section', 'Attendance'];
+          
+          const sheetData: CellData[][] = [
+            markCols.map(c => ({ value: c, bold: true, color: '#3b82f6' })),
+            ...rows.slice(0, 100).map((row: any) => 
+              markCols.map(col => ({
+                value: col === 'Name' ? row.name || '' :
+                       col === 'Roll' ? row.roll || '' :
+                       col === 'Section' ? row.section || '' :
+                       col === 'Attendance' ? row.attendance?.toString() || '' :
+                       row[col]?.toString() || ''
+              }))
+            )
+          ];
+          loadedSheets.push({ name, data: sheetData, rows: sheetData.length, cols: sheetData[0]?.length || 4 });
+        });
+      }
+      
+      if (loadedSheets.length === 0) {
+        loadedSheets.push({
+          name: 'Sheet1',
+          data: [[{ value: 'A', bold: true }, { value: 'B', bold: true }], [{ value: '' }, { value: '' }]],
+          rows: 2, cols: 2
+        });
+      }
+      
+      setSheets(loadedSheets);
+      setStats(res.sheets);
+      setActiveTab('preview');
+      setSuccess(`✓ Loaded ${loadedSheets.length} sheet(s)`);
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err: any) {
+      console.error('Analysis error:', err);
+      setError(err.message || 'Analysis failed');
+    }
+    setAnalyzing(false);
+  };
+
+  const deleteFile = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this file?')) return;
+    try {
+      await api.deleteFile(id);
+      await loadFiles();
+      if (selectedFile?.id === id) {
+        setSelectedFile(null);
+        setSheets([]);
+      }
+      setSuccess('✓ File deleted');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError('Delete failed');
+    }
+  };
+
+  const handleCellChange = (row: number, col: number, value: string) => {
+    if (!sheets[activeSheet]) return;
+    const newSheets = [...sheets];
+    newSheets[activeSheet].data[row][col] = { ...newSheets[activeSheet].data[row][col], value };
+    setSheets(newSheets);
+    if (selectedCell?.row === row && selectedCell?.col === col) setFormulaBar(value);
+  };
+
+  const addRow = () => {
+    if (!sheets[activeSheet]) return;
+    const newSheets = [...sheets];
+    const newRow: CellData[] = Array(newSheets[activeSheet].cols).fill({ value: '' });
+    newSheets[activeSheet].data.push(newRow);
+    newSheets[activeSheet].rows++;
+    setSheets(newSheets);
+    setSuccess('Row added');
+    setTimeout(() => setSuccess(''), 1000);
+  };
+
+  const addColumn = () => {
+    if (!sheets[activeSheet]) return;
+    const newSheets = [...sheets];
+    newSheets[activeSheet].data.forEach(row => row.push({ value: '' }));
+    newSheets[activeSheet].cols++;
+    setSheets(newSheets);
+    setSuccess('Column added');
+    setTimeout(() => setSuccess(''), 1000);
+  };
+
+  const deleteRow = () => {
+    if (!sheets[activeSheet] || sheets[activeSheet].rows <= 1) return;
+    const newSheets = [...sheets];
+    newSheets[activeSheet].data.pop();
+    newSheets[activeSheet].rows--;
+    setSheets(newSheets);
+    setSuccess('Row removed');
+    setTimeout(() => setSuccess(''), 1000);
+  };
+
+  const deleteColumn = () => {
+    if (!sheets[activeSheet] || sheets[activeSheet].cols <= 1) return;
+    const newSheets = [...sheets];
+    newSheets[activeSheet].data.forEach(row => row.pop());
+    newSheets[activeSheet].cols--;
+    setSheets(newSheets);
+    setSuccess('Column removed');
+    setTimeout(() => setSuccess(''), 1000);
+  };
+
+  const applyFormula = () => {
+    if (!selectedCell || !formulaBar.startsWith('=')) return;
+    const formula = formulaBar.slice(1);
+    try {
+      const sheet = sheets[activeSheet];
+      const [func, range] = formula.split('(');
+      const [start, end] = range?.replace(')', '').split(':') || [];
+      if (func.toUpperCase() === 'SUM' && start && end) {
+        const startCol = start.charCodeAt(0) - 65;
+        const startRow = parseInt(start.slice(1)) - 1;
+        const endCol = end.charCodeAt(0) - 65;
+        const endRow = parseInt(end.slice(1)) - 1;
+        let sum = 0;
+        for (let r = startRow; r <= endRow; r++) {
+          for (let c = startCol; c <= endCol; c++) {
+            const val = parseFloat(sheet.data[r]?.[c]?.value || '0');
+            if (!isNaN(val)) sum += val;
+          }
+        }
+        handleCellChange(selectedCell.row, selectedCell.col, sum.toString());
+      }
+    } catch (e) {
+      setError('Invalid formula');
+    }
+  };
+
+  const exportExcel = async () => {
+    if (!sheets[activeSheet]) return;
+    const headers = sheets[activeSheet].data[0].map(c => c.value);
+    const dataToExport = sheets[activeSheet].data.slice(1).map(row =>
+      Object.fromEntries(row.map((cell, i) => [headers[i] || `col${i}`, cell.value]))
+    );
+    try {
+      const res = await api.generateExcel(
+        dataToExport,
+        `${sheets[activeSheet].name}_${Date.now()}.xlsx`,
+        sheets[activeSheet].name,
+        user?.department
+      );
+      window.open(`http://localhost:3001${res.file.url}`, '_blank');
+      setSuccess('✓ Export ready');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError('Export failed');
+    }
+  };
+
+  const createNewSheet = async () => {
+    if (!createPrompt.trim()) return;
+    setGenerating(true);
+    try {
+      const sampleData = [
+        { Name: 'John Doe', Score: 85, Grade: 'A', Attendance: 92 },
+        { Name: 'Jane Smith', Score: 78, Grade: 'B+', Attendance: 88 },
+        { Name: 'Mike Johnson', Score: 92, Grade: 'A+', Attendance: 95 },
+        { Name: 'Sarah Williams', Score: 67, Grade: 'C', Attendance: 74 },
+        { Name: 'David Brown', Score: 89, Grade: 'A', Attendance: 91 },
+      ];
+      await api.generateExcel(sampleData, `${createPrompt.slice(0, 30)}.xlsx`, 'NewSheet', user?.department);
+      await loadFiles();
+      setCreatePrompt('');
+      setActiveTab('upload');
+      setSuccess(`✓ Created "${createPrompt.slice(0, 40)}"`);
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError('Creation failed');
+    }
     setGenerating(false);
-    setActiveTab('preview');
   };
 
-  const handleCellClick = (row: number, col: number) => {
-    setSelectedCell([row, col]);
-    const cell = sheets[activeSheet]?.data[row]?.[col];
-    setFormulaBar(cell?.formula ? `=${cell.formula}` : cell?.value || '');
-  };
+  const prepareChartData = useCallback(() => {
+    if (!stats) return;
+    const firstSheet = Object.values(stats)[0] as any;
+    if (!firstSheet) return;
+    if (firstSheet.sectionStats?.length) {
+      setChartData(firstSheet.sectionStats.map((s: any) => ({ name: s.section, avg: s.avg, passRate: s.passRate })));
+    } else if (firstSheet.subjectStats?.length) {
+      setChartData(firstSheet.subjectStats.map((s: any) => ({ name: s.subject, avg: s.avg, passRate: s.passRate })));
+    } else if (firstSheet.gradeDistribution?.length) {
+      setChartData(firstSheet.gradeDistribution);
+    } else {
+      setChartData([]);
+    }
+  }, [stats]);
 
-  const getCellRef = (row: number, col: number) => {
-    const cols = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    return `${cols[col]}${row + 1}`;
-  };
+  useEffect(() => {
+    if (stats && activeTab === 'charts') prepareChartData();
+  }, [stats, activeTab, prepareChartData]);
 
-  const currentData = sheets[activeSheet]?.data || [];
-  const chartData = hasResult
-    ? [
-        { label: 'Jan', value: 74100 },
-        { label: 'Feb', value: 72600 },
-        { label: 'Mar', value: 76600 },
-      ]
-    : [];
+  const getCellAddress = (row: number, col: number) => `${String.fromCharCode(65 + col)}${row + 1}`;
+  const currentSheet = sheets[activeSheet];
+  const currentStats = stats ? Object.values(stats)[activeSheet] as any : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg)' }}>
@@ -327,589 +358,494 @@ export default function ExcelSheet() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar isOpen={sidebarOpen} />
         <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-2)' }}>
-          {/* Top bar */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '0 14px',
-              height: 44,
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--bg)',
-              flexShrink: 0,
-            }}
-          >
-            <div style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
-              EXCEL SHEET
+
+          {/* Top Bar */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px',
+            height: 52, borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0
+          }}>
+            <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>EXCEL STUDIO</span>
+            <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: backendOnline ? '#22c55e' : '#ef4444' }} />
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                {backendOnline ? 'Backend Online' : 'Backend Offline'}
+              </span>
             </div>
-            <div className="divider-v" style={{ height: 16, margin: '0 4px' }} />
-            <div style={{ display: 'flex', gap: 2 }}>
-              {(['excel', 'document', 'chart', 'pivot', 'formula'] as GenMode[]).map(m => (
-                <button
-                  key={m}
-                  className={`btn btn-xs ${genMode === m ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setGenMode(m)}
-                  style={{ textTransform: 'capitalize' }}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-              {hasResult && (
-                <>
-                  <button className="btn btn-secondary btn-sm">
-                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1={12} y1={15} x2={12} y2={3} />
-                    </svg>
-                    Export .xlsx
-                  </button>
-                  <button className="btn btn-outline btn-sm">Export PDF</button>
-                  <button className="btn btn-outline btn-sm">Export CSV</button>
-                </>
-              )}
+            <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+            
+            <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+              {uploading ? '⟳ Uploading...' : '+ Upload Excel'}
+            </button>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
+            
+            {selectedFile && (
+              <>
+                <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'var(--surface-2)', padding: '4px 10px', borderRadius: 6 }}>
+                  📄 {selectedFile.name.length > 35 ? selectedFile.name.slice(0, 32) + '...' : selectedFile.name}
+                </span>
+                <button className="btn btn-sm btn-outline" onClick={exportExcel}>↓ Export</button>
+                <button className="btn btn-sm btn-ghost" onClick={addRow}>+ Row</button>
+                <button className="btn btn-sm btn-ghost" onClick={addColumn}>+ Col</button>
+              </>
+            )}
+            
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              {debugInfo && <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{debugInfo}</span>}
+              {success && <span style={{ fontSize: '0.7rem', color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '4px 10px', borderRadius: 6 }}>{success}</span>}
+              {error && <span style={{ fontSize: '0.7rem', color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '4px 10px', borderRadius: 6 }}>⚠ {error}</span>}
             </div>
           </div>
 
           {/* Tabs */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 0,
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--bg)',
-              flexShrink: 0,
-            }}
-          >
-            {(['generate', 'preview', 'code', 'chart'] as Tab[]).map(tab => (
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0, gap: 4, padding: '0 12px' }}>
+            {[
+              { id: 'upload', label: '📁 My Files', icon: '📁' },
+              { id: 'preview', label: '👁 Preview', icon: '👁', disabled: !selectedFile },
+              { id: 'edit', label: '✏ Edit', icon: '✏', disabled: !selectedFile },
+              { id: 'analyze', label: '📊 Analyze', icon: '📊', disabled: !selectedFile },
+              { id: 'charts', label: '📈 Charts', icon: '📈', disabled: !selectedFile },
+              { id: 'create', label: '✨ Create New', icon: '✨' }
+            ].map(tab => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
+                key={tab.id}
+                onClick={() => !tab.disabled && setActiveTab(tab.id as Tab)}
+                disabled={tab.disabled}
                 style={{
-                  padding: '8px 16px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
-                  cursor: 'pointer',
-                  fontSize: '0.78rem',
-                  fontWeight: activeTab === tab ? 600 : 400,
-                  color: activeTab === tab ? 'var(--accent)' : 'var(--text-secondary)',
-                  transition: 'all 0.15s',
-                  textTransform: 'capitalize',
+                  padding: '10px 20px', background: 'none', border: 'none',
+                  borderBottom: activeTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+                  cursor: tab.disabled ? 'not-allowed' : 'pointer',
+                  fontSize: '0.8rem', fontWeight: activeTab === tab.id ? 600 : 500,
+                  color: tab.disabled ? 'var(--text-muted)' : (activeTab === tab.id ? 'var(--accent)' : 'var(--text-secondary)'),
+                  transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 6,
+                  opacity: tab.disabled ? 0.5 : 1
                 }}
               >
-                {tab}
-                {tab === 'preview' && hasResult && (
-                  <span
-                    style={{
-                      marginLeft: 4,
-                      width: 5,
-                      height: 5,
-                      background: 'var(--success)',
-                      borderRadius: '50%',
-                      display: 'inline-block',
-                    }}
-                  />
-                )}
+                <span>{tab.icon}</span> {tab.label}
               </button>
             ))}
           </div>
 
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-            {/* GENERATE TAB */}
-            {activeTab === 'generate' && (
-              <div style={{ flex: 1, display: 'flex', overflowY: 'auto', padding: '24px', gap: 20 }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 600 }}>
-                  <div>
-                    <h2 style={{ marginBottom: 4, fontSize: '1rem' }}>
-                      Generate {genMode === 'excel'
-                        ? 'Spreadsheet'
-                        : genMode === 'document'
-                        ? 'Document'
-                        : genMode === 'chart'
-                        ? 'Chart'
-                        : genMode === 'pivot'
-                        ? 'Pivot Table'
-                        : 'Formula'}
-                    </h2>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      Describe what you want – AI will generate Python code and execute it.
+          {/* Sheet Selector */}
+          {selectedFile && sheets.length > 1 && (
+            <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', background: 'var(--bg)', padding: '4px 12px', flexShrink: 0, overflowX: 'auto' }}>
+              {sheets.map((sheet, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setActiveSheet(i); prepareChartData(); }}
+                  style={{
+                    padding: '6px 16px', background: activeSheet === i ? 'var(--surface)' : 'transparent',
+                    border: 'none', borderBottom: activeSheet === i ? '2px solid var(--accent)' : '2px solid transparent',
+                    cursor: 'pointer', fontSize: '0.75rem', color: activeSheet === i ? 'var(--text)' : 'var(--text-muted)',
+                    fontWeight: activeSheet === i ? 600 : 400
+                  }}
+                >
+                  📄 {sheet.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Content Area */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+            {/* UPLOAD TAB */}
+            {activeTab === 'upload' && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+                <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+                  {/* Drop Zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    style={{
+                      border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 20, padding: 48, textAlign: 'center', cursor: 'pointer',
+                      background: dragOver ? 'var(--accent-dim)' : 'var(--surface)',
+                      transition: 'all 0.2s', marginBottom: 32
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <div style={{ fontSize: 64, marginBottom: 16, opacity: 0.6 }}>📊</div>
+                    <h3 style={{ fontSize: '1.2rem', marginBottom: 8 }}>Upload Excel Files</h3>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Drag & drop or click to upload .xlsx, .xls, .csv files
                     </p>
+                    <button className="btn btn-primary btn-md" style={{ marginTop: 20 }} disabled={uploading}>
+                      {uploading ? 'Uploading...' : 'Select Files'}
+                    </button>
                   </div>
 
-                  <div
-                    style={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 10,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <textarea
-                      ref={promptRef}
-                      className="input"
-                      value={prompt}
-                      onChange={e => setPrompt(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleGenerate();
-                      }}
-                      placeholder={
-                        genMode === 'formula'
-                          ? 'Describe your formula: "Sum values in column B where column A equals Sales and column C > 1000"'
-                          : genMode === 'pivot'
-                          ? 'Describe your pivot: "Pivot table of sales by region and product category with totals"'
-                          : 'Describe your spreadsheet: "Monthly budget tracker for a startup with income, expenses, and profit/loss"'
-                      }
-                      style={{
-                        border: 'none',
-                        borderRadius: 0,
-                        resize: 'none',
-                        minHeight: 120,
-                        boxShadow: 'none',
-                        fontSize: '0.875rem',
-                      }}
-                      rows={5}
-                    />
-                    <div
-                      style={{
-                        padding: '8px 12px',
-                        borderTop: '1px solid var(--border)',
-                        background: 'var(--bg-3)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        {['with charts', 'with formatting', 'with formulas', 'downloadable'].map(t => (
-                          <button
-                            key={t}
-                            className="btn btn-xs btn-outline"
-                            onClick={() => setPrompt(p => (p ? p + ` ${t}` : t))}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                          {prompt.length}/2000
-                        </span>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={handleGenerate}
-                          disabled={!prompt.trim() || generating}
-                          style={{ minWidth: 80 }}
-                        >
-                          {generating ? 'Generating...' : 'Generate →'}
-                        </button>
-                      </div>
+                  {/* Search */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                    <h3 style={{ fontSize: '0.9rem' }}>Your Files ({files.length})</h3>
+                    <div className="search-bar" style={{ width: 220 }}>
+                      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx={11} cy={11} r={8}/><path d="m21 21-4.35-4.35"/></svg>
+                      <input 
+                        placeholder="Search files..." 
+                        value={searchQuery} 
+                        onChange={e => { setSearchQuery(e.target.value); loadFiles(); }} 
+                      />
                     </div>
                   </div>
 
-                  {generating && (
-                    <div style={{ padding: '16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
-                          {progressLabel}
-                        </span>
-                        <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{progress}%</span>
-                      </div>
-                      <div className="progress-track">
-                        <div className="progress-fill striped" style={{ width: `${progress}%` }} />
-                      </div>
+                  {/* Files List */}
+                  {loading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                      <div className="spinner" style={{ width: 28, height: 28 }} />
+                    </div>
+                  ) : files.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 16 }}>
+                      <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }}>📂</div>
+                      <p>No files uploaded yet. Drop your Excel files above.</p>
+                      <p style={{ fontSize: '0.7rem', marginTop: 8 }}>Supported: .xlsx, .xls, .csv</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {files.map((file) => (
+                        <div
+                          key={file.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
+                            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
+                            cursor: 'pointer', transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                          onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+                          onClick={() => handleSelectFile(file)}
+                        >
+                          <div style={{ fontSize: 32 }}>📄</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.9rem' }}>{file.name}</div>
+                            <div style={{ display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                              <span>{(file.size / 1024).toFixed(1)} KB</span>
+                              <span>📁 {file.department || 'general'}</span>
+                              <span>📅 {file.uploadedAt ? new Date(file.uploadedAt).toLocaleDateString() : 'Just now'}</span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-sm btn-outline" onClick={(e) => { e.stopPropagation(); handleSelectFile(file); }}>
+                              Analyze
+                            </button>
+                            <button className="btn btn-sm btn-ghost" style={{ color: 'var(--red)' }} onClick={(e) => deleteFile(file.id, e)}>
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
-
-                  <div>
-                    <div
-                      style={{
-                        fontSize: '0.7rem',
-                        fontFamily: 'var(--font-mono)',
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        color: 'var(--text-muted)',
-                        marginBottom: 8,
-                      }}
-                    >
-                      Quick Templates
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      {[
-                        { title: 'Monthly Budget', desc: 'Income & expenses with charts', prompt: 'Create a monthly budget tracker with income, expenses by category, running totals, and a bar chart' },
-                        { title: 'Sales Pipeline', desc: 'CRM opportunity tracker', prompt: 'Build a sales pipeline tracker with deal name, stage, value, probability, weighted value, and close date' },
-                        { title: 'KPI Dashboard', desc: 'Business metrics overview', prompt: 'Create a KPI dashboard with revenue, growth rate, customer count, and churn rate metrics with sparklines' },
-                        { title: 'Employee Sheet', desc: 'HR attendance & payroll', prompt: 'Generate an employee attendance and payroll sheet with name, department, days present, rate, and net pay' },
-                        { title: 'Inventory Tracker', desc: 'Stock management', prompt: 'Create an inventory tracker with product name, SKU, quantity, reorder level, and value with low-stock alerts' },
-                        { title: 'P&L Statement', desc: 'Profit & loss report', prompt: 'Generate a monthly profit and loss statement with revenue, COGS, gross profit, operating expenses, and net income' },
-                      ].map(t => (
-                        <div
-                          key={t.title}
-                          style={{
-                            padding: '10px 12px',
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 7,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s',
-                          }}
-                          onMouseEnter={e => {
-                            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)';
-                            (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)';
-                          }}
-                          onMouseLeave={e => {
-                            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
-                            (e.currentTarget as HTMLElement).style.background = 'var(--surface)';
-                          }}
-                          onClick={() => {
-                            setPrompt(t.prompt);
-                            promptRef.current?.focus();
-                          }}
-                        >
-                          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{t.title}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{t.desc}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-                    <div className="panel-header">Recent Prompts</div>
-                    <div>
-                      {historyItems.map((h, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            padding: '8px 12px',
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                            cursor: 'pointer',
-                            borderBottom: '1px solid var(--border)',
-                            transition: 'background 0.1s',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-dim)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                          onClick={() => {
-                            setPrompt(h);
-                            promptRef.current?.focus();
-                          }}
-                        >
-                          {h}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px' }}>
-                    <div
-                      style={{
-                        fontSize: '0.7rem',
-                        fontFamily: 'var(--font-mono)',
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        color: 'var(--text-muted)',
-                        marginBottom: 8,
-                      }}
-                    >
-                      Tips
-                    </div>
-                    {[
-                      'Be specific about columns and data types',
-                      'Mention if you want formulas or static values',
-                      'Ask for conditional formatting explicitly',
-                      'Specify currency or date formats',
-                    ].map((t, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--text-secondary)',
-                          marginBottom: 6,
-                          paddingLeft: 10,
-                          borderLeft: '2px solid var(--border)',
-                          lineHeight: 1.4,
-                        }}
-                      >
-                        {t}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
 
             {/* PREVIEW TAB */}
-            {activeTab === 'preview' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {!hasResult ? (
-                  <div className="empty-state" style={{ margin: 'auto' }}>
-                    <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>⊞</div>
-                    <h3>No spreadsheet generated yet</h3>
-                    <p>Go to the Generate tab and create your first spreadsheet</p>
-                    <button className="btn btn-primary btn-sm" style={{ marginTop: 12 }} onClick={() => setActiveTab('generate')}>
-                      Generate now →
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {/* Formula bar */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '0 10px',
-                        height: 32,
-                        borderBottom: '1px solid var(--border)',
-                        flexShrink: 0,
-                        background: 'var(--bg)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 56,
-                          height: 22,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: '1px solid var(--border)',
-                          fontSize: '0.75rem',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--text-secondary)',
-                          background: 'var(--surface)',
-                        }}
-                      >
-                        {selectedCell ? getCellRef(selectedCell[0], selectedCell[1]) : ''}
-                      </div>
-                      <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-                      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>ƒ</span>
-                      <input
-                        className="input input-mono"
-                        value={formulaBar}
-                        onChange={e => setFormulaBar(e.target.value)}
-                        style={{
-                          flex: 1,
-                          border: 'none',
-                          boxShadow: 'none',
-                          background: 'transparent',
-                          padding: '0 4px',
-                          height: 24,
-                          fontSize: '0.78rem',
-                        }}
-                      />
-                    </div>
-
-                    {/* Sheet grid */}
-                    <div style={{ flex: 1, overflow: 'auto' }}>
-                      <div style={{ display: 'inline-flex', minWidth: '100%' }}>
-                        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: '0.75rem' }}>
-                          <thead>
-                            <tr>
-                              <th className="cell row-header" style={{ width: 44, position: 'sticky', left: 0, top: 0, zIndex: 3 }} />
-                              {currentData[0]?.map((_, ci) => (
-                                <th
-                                  key={ci}
-                                  className="cell header"
-                                  style={{
-                                    position: 'sticky',
-                                    top: 0,
-                                    zIndex: 2,
-                                    width: ci === 0 ? 140 : 100,
-                                    textAlign: 'center',
-                                  }}
-                                >
-                                  {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[ci]}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {currentData.map((row, ri) => (
-                              <tr key={ri}>
-                                <td className="cell row-header header" style={{ position: 'sticky', left: 0, zIndex: 1 }}>
-                                  {ri + 1}
-                                </td>
-                                {row.map((cell, ci) => (
-                                  <td
-                                    key={ci}
-                                    className={`cell${selectedCell?.[0] === ri && selectedCell?.[1] === ci ? ' selected' : ''}`}
-                                    style={{
-                                      fontWeight: cell.bold ? 700 : 400,
-                                      textAlign: cell.align || (ri === 0 || cell.bold ? 'center' : 'left'),
-                                      color: ri === 0 || (cell.bold && ri > 0) ? 'var(--text)' : 'var(--text-secondary)',
-                                    }}
-                                    onClick={() => handleCellClick(ri, ci)}
-                                  >
-                                    {cell.formula || cell.value}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* Sheet tabs */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0,
-                        borderTop: '1px solid var(--border)',
-                        height: 32,
-                        paddingLeft: 8,
-                        background: 'var(--bg)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {sheets.map((s, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setActiveSheet(i)}
-                          style={{
-                            padding: '0 14px',
-                            height: '100%',
-                            border: 'none',
-                            borderRight: '1px solid var(--border)',
-                            background: activeSheet === i ? 'var(--surface)' : 'transparent',
-                            color: activeSheet === i ? 'var(--text)' : 'var(--text-muted)',
-                            cursor: 'pointer',
-                            fontSize: '0.75rem',
-                            fontWeight: activeSheet === i ? 600 : 400,
-                            borderBottom: activeSheet === i ? '2px solid var(--accent)' : '2px solid transparent',
-                            transition: 'all 0.1s',
-                          }}
-                        >
-                          {s.name}
-                        </button>
-                      ))}
-                      <button className="btn btn-ghost btn-xs" style={{ marginLeft: 4 }}>
-                        + Sheet
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* CODE TAB */}
-            {activeTab === 'code' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {!hasResult ? (
-                  <div className="empty-state" style={{ margin: 'auto' }}>
-                    <div style={{ fontSize: 40, opacity: 0.3, marginBottom: 12 }}>{'</>'}</div>
-                    <h3>No code generated yet</h3>
-                    <p>Generate a spreadsheet first to see the Python code</p>
-                  </div>
-                ) : (
-                  <>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '0 12px',
-                        height: 40,
-                        borderBottom: '1px solid var(--border)',
-                        background: 'var(--bg)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
-                        PYTHON · openpyxl · Read-only
-                      </span>
-                      <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                        <button className="btn btn-secondary btn-sm" onClick={() => navigator.clipboard?.writeText(code)}>
-                          Copy Code
-                        </button>
-                        <button className="btn btn-primary btn-sm">▶ Run Locally</button>
-                      </div>
-                    </div>
-                    <div style={{ flex: 1, overflow: 'auto', background: 'var(--code-bg)' }}>
-                      <pre
-                        style={{
-                          padding: '16px 20px',
-                          margin: 0,
-                          fontSize: '0.75rem',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--code-text)',
-                          lineHeight: 1.7,
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {code.split('\n').map((line, i) => (
-                          <div key={i} style={{ display: 'flex' }}>
-                            <span
-                              style={{
-                                minWidth: 36,
-                                color: 'var(--text-muted)',
-                                textAlign: 'right',
-                                paddingRight: 16,
-                                userSelect: 'none',
-                                fontSize: '0.7rem',
-                                opacity: 0.5,
-                              }}
-                            >
-                              {i + 1}
-                            </span>
-                            <span>{line || '\u00A0'}</span>
-                          </div>
+            {activeTab === 'preview' && currentSheet && (
+              <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+                <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid var(--border)' }}>
+                  <table style={{ borderCollapse: 'collapse', fontSize: '0.75rem', minWidth: '100%' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface-2)' }}>
+                        <th style={{ position: 'sticky', left: 0, background: 'var(--surface-2)', zIndex: 2, padding: '10px 12px', borderBottom: '1px solid var(--border)', width: 44 }}>#</th>
+                        {currentSheet.data[0]?.map((_, ci) => (
+                          <th key={ci} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                            {String.fromCharCode(65 + ci)}
+                          </th>
                         ))}
-                      </pre>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentSheet.data.slice(0, 50).map((row, ri) => (
+                        <tr key={ri} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ position: 'sticky', left: 0, background: 'var(--surface)', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>{ri + 1}</td>
+                          {row.map((cell, ci) => (
+                            <td key={ci} style={{
+                              padding: '8px 12px', borderRight: '1px solid var(--border)',
+                              fontWeight: cell.bold ? 600 : 400, color: cell.color || 'var(--text)',
+                              background: cell.bg || 'transparent', minWidth: 100
+                            }}>
+                              {cell.value || '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {currentSheet.data.length > 50 && (
+                    <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.7rem', borderTop: '1px solid var(--border)' }}>
+                      Showing first 50 of {currentSheet.data.length} rows
                     </div>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
             )}
 
-            {/* CHART TAB */}
-            {activeTab === 'chart' && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', gap: 20 }}>
-                {!hasResult ? (
-                  <div className="empty-state" style={{ margin: 'auto' }}>
-                    <div style={{ fontSize: 40, opacity: 0.3, marginBottom: 12 }}>◬</div>
-                    <h3>No chart data yet</h3>
-                    <p>Generate a spreadsheet first, then visualize the data here</p>
+            {/* EDIT TAB */}
+            {activeTab === 'edit' && currentSheet && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg)', flexShrink: 0 }}>
+                  <div style={{
+                    width: 70, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6,
+                    fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600
+                  }}>
+                    {selectedCell ? getCellAddress(selectedCell.row, selectedCell.col) : 'A1'}
                   </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
-                    <h3 style={{ fontSize: '0.9rem' }}>Generated Charts</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
-                      {[
-                        { title: 'Q1 Budget by Month', type: 'bar' },
-                        { title: 'Expense Distribution', type: 'bar' },
-                      ].map(c => (
-                        <div
-                          key={c.title}
-                          style={{
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 10,
-                            padding: '14px 16px',
-                          }}
-                        >
-                          <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 12, color: 'var(--text)' }}>
-                            {c.title}
-                          </div>
-                          <BarChart data={chartData} />
-                          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                            <button className="btn btn-xs btn-outline">Edit</button>
-                            <button className="btn btn-xs btn-outline">Export PNG</button>
-                          </div>
+                  <span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 500 }}>ƒx</span>
+                  <input
+                    className="input"
+                    value={formulaBar}
+                    onChange={e => setFormulaBar(e.target.value)}
+                    placeholder="Enter value or formula (e.g., =SUM(A1:A5))"
+                    style={{ flex: 1, height: 34, fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}
+                    onKeyDown={e => e.key === 'Enter' && applyFormula()}
+                  />
+                  <button className="btn btn-sm btn-outline" onClick={applyFormula}>Apply</button>
+                </div>
+
+                <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                  <div style={{ minWidth: 'max-content' }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: '0.73rem' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: 44, padding: '6px 4px', border: '1px solid var(--border)', background: 'var(--surface)' }}></th>
+                          {currentSheet.data[0]?.map((_, ci) => (
+                            <th key={ci} style={{
+                              padding: '6px 12px', border: '1px solid var(--border)', background: 'var(--surface-2)',
+                              fontWeight: 600, fontSize: '0.7rem', minWidth: 100
+                            }}>
+                              {String.fromCharCode(65 + ci)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentSheet.data.map((row, ri) => (
+                          <tr key={ri}>
+                            <td style={{
+                              padding: '6px 4px', border: '1px solid var(--border)', background: 'var(--surface)',
+                              textAlign: 'center', fontWeight: 600, fontSize: '0.7rem'
+                            }}>{ri + 1}</td>
+                            {row.map((cell, ci) => (
+                              <td
+                                key={ci}
+                                style={{
+                                  padding: 0, border: '1px solid var(--border)',
+                                  background: selectedCell?.row === ri && selectedCell?.col === ci ? 'var(--accent-dim)' : 'transparent'
+                                }}
+                                onClick={() => {
+                                  setSelectedCell({ row: ri, col: ci });
+                                  setFormulaBar(cell.value);
+                                }}
+                              >
+                                <input
+                                  value={cell.value}
+                                  onChange={e => handleCellChange(ri, ci, e.target.value)}
+                                  style={{
+                                    width: '100%', padding: '6px 12px', border: 'none', background: 'transparent',
+                                    outline: 'none', fontSize: '0.75rem', color: 'var(--text)',
+                                    fontFamily: 'var(--font-mono)'
+                                  }}
+                                  onFocus={() => setSelectedCell({ row: ri, col: ci })}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ANALYZE TAB */}
+            {activeTab === 'analyze' && currentStats && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
+                  {[
+                    { label: 'Total', value: currentStats.total, color: '#3b82f6', icon: '👥' },
+                    { label: 'Passed', value: currentStats.passed, color: '#22c55e', icon: '✅' },
+                    { label: 'Failed', value: currentStats.failed, color: '#ef4444', icon: '❌' },
+                    { label: 'Pass Rate', value: `${currentStats.passRate}%`, color: '#f97316', icon: '📈' },
+                    { label: 'Avg Score', value: currentStats.avgScore, color: '#a855f7', icon: '⭐' },
+                    { label: '<75% Attend', value: currentStats.below75Count || 0, color: '#eab308', icon: '⚠️' },
+                  ].map((k, i) => (
+                    <div key={i} style={{ background: 'var(--surface)', border: `1px solid ${k.color}30`, borderRadius: 12, padding: 16, textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, marginBottom: 4 }}>{k.icon}</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: k.color }}>{k.value}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {currentStats.sectionStats?.length > 0 && (
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+                    <h4 style={{ fontSize: '0.9rem', marginBottom: 16 }}>📊 Section-wise Performance</h4>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', fontSize: '0.75rem' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface-2)' }}>
+                            {['Section', 'Students', 'Avg Score', 'Passed', 'Failed', 'Pass Rate'].map(h => (
+                              <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+                            ))}
+                           </tr>
+                        </thead>
+                        <tbody>
+                          {currentStats.sectionStats.map((s: any, i: number) => (
+                            <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                              <td style={{ padding: '10px 12px', fontWeight: 600 }}>{s.section}</td>
+                              <td style={{ padding: '10px 12px' }}>{s.count}</td>
+                              <td style={{ padding: '10px 12px', color: '#3b82f6', fontWeight: 600 }}>{s.avg}</td>
+                              <td style={{ padding: '10px 12px', color: '#22c55e' }}>{s.passed}</td>
+                              <td style={{ padding: '10px 12px', color: '#ef4444' }}>{s.failed}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                                    <div style={{ width: `${s.passRate}%`, height: '100%', background: s.passRate > 70 ? '#22c55e' : s.passRate > 50 ? '#f97316' : '#ef4444', borderRadius: 3 }} />
+                                  </div>
+                                  <span style={{ fontWeight: 600, minWidth: 40 }}>{s.passRate}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {currentStats.topStudents?.length > 0 && (
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+                    <h4 style={{ fontSize: '0.9rem', marginBottom: 16 }}>🏆 Top 10 Students</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                      {currentStats.topStudents.slice(0, 10).map((s: any, i: number) => (
+                        <div key={i} style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span><span style={{ color: i < 3 ? '#fbbf24' : 'var(--text-muted)', fontWeight: 600, marginRight: 8 }}>{i + 1}.</span> {s.name}</span>
+                          <span style={{ color: '#3b82f6', fontWeight: 700 }}>{s.avg}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* CHARTS TAB */}
+            {activeTab === 'charts' && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+                {!chartData.length ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ fontSize: 48, opacity: 0.3 }}>📊</div>
+                    <p style={{ color: 'var(--text-muted)' }}>Select a file and go to Analyze tab first</p>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
+                      {(['bar', 'line', 'pie', 'area', 'radar'] as const).map(type => (
+                        <button key={type} className={`btn ${chartType === type ? 'btn-primary' : 'btn-outline'}`} onClick={() => setChartType(type)}>
+                          {type === 'bar' ? '📊 Bar' : type === 'line' ? '📈 Line' : type === 'pie' ? '🥧 Pie' : type === 'area' ? '📉 Area' : '🔮 Radar'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 24 }}>
+                      <ResponsiveContainer width="100%" height={450}>
+                        {chartType === 'bar' && (
+                          <BarChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)' }} />
+                            <YAxis tick={{ fill: 'var(--text-secondary)' }} />
+                            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+                            <Legend />
+                            <Bar dataKey="avg" name="Average Score" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="passRate" name="Pass Rate %" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        )}
+                        {chartType === 'line' && (
+                          <LineChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)' }} />
+                            <YAxis tick={{ fill: 'var(--text-secondary)' }} />
+                            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+                            <Legend />
+                            <Line type="monotone" dataKey="avg" stroke="#3b82f6" strokeWidth={2} dot={{ fill: '#3b82f6', r: 4 }} />
+                            <Line type="monotone" dataKey="passRate" stroke="#22c55e" strokeWidth={2} dot={{ fill: '#22c55e', r: 4 }} />
+                          </LineChart>
+                        )}
+                        {chartType === 'pie' && chartData[0]?.count && (
+                          <PieChart>
+                            <Pie data={chartData} dataKey="count" nameKey="grade" cx="50%" cy="50%" outerRadius={140} label={{ fill: 'var(--text)', fontSize: 12 }}>
+                              {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+                            <Legend />
+                          </PieChart>
+                        )}
+                        {chartType === 'area' && (
+                          <AreaChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)' }} />
+                            <YAxis tick={{ fill: 'var(--text-secondary)' }} />
+                            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+                            <Legend />
+                            <Area type="monotone" dataKey="avg" stroke="#3b82f6" fill="#3b82f640" />
+                            <Area type="monotone" dataKey="passRate" stroke="#22c55e" fill="#22c55e40" />
+                          </AreaChart>
+                        )}
+                        {chartType === 'radar' && (
+                          <RadarChart data={chartData}>
+                            <PolarGrid stroke="var(--border)" />
+                            <PolarAngleAxis dataKey="name" tick={{ fill: 'var(--text-secondary)' }} />
+                            <PolarRadiusAxis tick={{ fill: 'var(--text-secondary)' }} />
+                            <Radar name="Average" dataKey="avg" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                            <Radar name="Pass Rate" dataKey="passRate" stroke="#22c55e" fill="#22c55e" fillOpacity={0.2} />
+                            <Legend />
+                            <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)' }} />
+                          </RadarChart>
+                        )}
+                      </ResponsiveContainer>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* CREATE TAB */}
+            {activeTab === 'create' && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
+                <div style={{ maxWidth: 600, margin: '0 auto' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                    <div style={{ fontSize: 48, marginBottom: 12 }}>✨</div>
+                    <h2 style={{ fontSize: '1.3rem', marginBottom: 8 }}>Create New Spreadsheet</h2>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Describe what you need, and AI will generate a sample Excel file</p>
+                  </div>
+
+                  <textarea
+                    className="input"
+                    value={createPrompt}
+                    onChange={e => setCreatePrompt(e.target.value)}
+                    placeholder="e.g., Student attendance tracker, Q4 sales report, Employee salary sheet, Exam results analysis..."
+                    style={{ width: '100%', minHeight: 120, marginBottom: 20, fontSize: '0.9rem', resize: 'vertical' }}
+                  />
+
+                  <button className="btn btn-primary btn-lg" onClick={createNewSheet} disabled={generating || !createPrompt.trim()} style={{ width: '100%', padding: '12px' }}>
+                    {generating ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Generating...</> : '✨ Generate Spreadsheet'}
+                  </button>
+
+                  <div style={{ marginTop: 32 }}>
+                    <h3 style={{ fontSize: '0.85rem', marginBottom: 12, color: 'var(--text-muted)' }}>Try these examples</h3>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {['Student grade sheet with 10 students', 'Monthly sales report Q1 2026', 'Employee attendance tracker', 'Inventory stock management', 'Exam results analysis'].map(example => (
+                        <button key={example} className="btn btn-xs btn-outline" onClick={() => setCreatePrompt(example)} style={{ padding: '5px 12px' }}>
+                          {example}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
