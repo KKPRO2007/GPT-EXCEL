@@ -31,22 +31,19 @@ Runs on: http://localhost:3001
 Handles file uploads, Excel parsing, and all AI (Gemini / HuggingFace) calls.
  
 ---
- 
 ### 3. Python Engine (Optional — Excel Generation)
- 
-Open a **third terminal**:
- 
-```bash
+
+Open a third terminal:
+
 cd python_engine
 pip install -r requirements.txt
+npm install -g pptxgenjs
 uvicorn main:app --reload --port 8001
-```
- 
-Runs on: http://127.0.0.1:8000  
-API Docs: http://127.0.0.1:8000/docs  
- 
-Handles advanced Excel generation, data processing, and chart creation.
- 
+
+Runs on: http://127.0.0.1:8001    API Docs: http://127.0.0.1:8001/docs
+
+Handles Excel generation, data cleaning, chart creation, Word & PowerPoint
+document generation, file segmentation, and offline automation.
 ---
 
 ---
