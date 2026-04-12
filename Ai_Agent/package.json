@@ -10,6 +10,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.49.0",
     "dotenv": "^17.4.1",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "openai": "^6.34.0"
   }
 }

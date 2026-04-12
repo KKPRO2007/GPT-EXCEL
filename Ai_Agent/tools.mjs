@@ -187,7 +187,7 @@ export const toolDefinitions = [
         maxRows: {
           type: "number",
           description:
-            "Maximum number of rows to return (default 5). Keep this small (e.g., 5 or 10) to avoid overloading the context window! Only request more if absolutely necessary.",
+            "Maximum number of rows to return (default 3). Keep this small (e.g., 2-3) to avoid overloading the context window! Only request more if absolutely necessary.",
         },
       },
       required: ["sheet"],
